@@ -1,0 +1,426 @@
+<html>
+<head>
+<style>
+
+.rotate {
+  -webkit-transform: rotate(180deg);
+  transform: rotate(180deg);
+}
+.cell {
+  border: 1px solid darkgreen;
+  background:green;
+  width:35px;
+  height:35px;
+  display:inline-block;
+}
+
+.black { background: black; }
+.purple { background: purple; }
+.blue { background: blue; }
+
+.piece {
+  margin:auto auto;
+}
+
+.moveMarked:before, .moveMarked:after {
+    position:relative;
+    content: '';
+    background: red;
+    display: block;
+    width: 100%;
+    height: 2px;
+    -webkit-transform: rotate(135deg);
+    transform: rotate(135deg);
+    top: 17px;
+    left:0px;
+    width:37px;
+}
+
+.moveMarked:after {
+    -webkit-transform: rotate(45deg);    
+    transform: rotate(45deg);
+    top:-11px;
+    left:-1px;
+    background:red;
+}
+
+.selected {
+  background:yellow !important;
+}
+
+.possibleTarget {
+  background:orange;
+}
+
+.possibleKill {
+  background:red;
+}
+
+.piece,.pieceHolder {
+  width:20px;
+  height:20px;
+  margin-top:6px;
+  
+}
+
+.player.both {
+  background:#bb5544;
+}
+
+.player.pawn {
+  background:lightblue;
+}
+.opponent.pawn {
+  background:grey;
+}
+.opponent.king {
+  background:orange;
+}
+
+.player.king {
+  background:purple;
+}
+
+#boardondeck > * {
+  display:inline-block;
+}
+
+/*  35*5=175 + 6 for borders  */
+.move {
+  display:inline-block;
+  border:1px solid black;
+  width:90.5px;
+}
+
+.move > h3 {
+  text-align:center;
+  user-select: none;
+}
+
+.move ::selection { background:transparent;}
+
+.move > * > * > * {
+  display:inline-block;
+  border:1px solid black;
+  width:5px;
+  height:5px;
+}
+
+.move > div {
+  width:35px;
+  margin:auto auto auto auto;
+}
+
+</style>
+<script type="text/javascript" src="http://code.jquery.com/jquery-2.1.3.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/js/bootstrap.min.js"></script>
+
+<script>
+
+var playerNum = 1;
+
+function gup( name ){
+  name = name.replace(/[\[]/,"\\\[").replace(/[\]]/,"\\\]");  
+  var regexS = "[\\?&]"+name+"=([^&#]*)";  
+  var regex = new RegExp( regexS );  
+  var results = regex.exec( window.location.href ); 
+   if( results == null )    return "";  
+  else    return results[1];
+}
+
+function printMove(move, opponent, num){
+  var id= opponent ? 'oppo' : 'play';
+  id += num;
+  var rtn = "<div id='"+id+"' class='move canRotate"+(opponent?" rotate":"")+"'><h3>"+move.name+"</h3>"
+  rtn += "<div>";
+  
+  for(var row = -2; row <= 2; row++) {
+    rtn += "<div>";
+    for(var col=-2; col<=2; col++) {
+      var both = move.both.filter(function(i){return i[0] == row && i[1] == col});
+      var pawn = move.pawn.filter(function(i){return i[0] == row && i[1] == col});
+      var king = move.king.filter(function(i){return i[0] == row && i[1] == col});
+      var opppawn = move.opppawn.filter(function(i){return i[0] == row && i[1] == col});
+      var oppking = move.oppking.filter(function(i){return i[0] == row && i[1] == col});
+      rtn += "<div class='";
+      if(row == 0 && col == 0)
+        rtn += "black";
+      else if (both.length)
+        rtn += "player both";
+      else if (pawn.length)
+        rtn += "player pawn";
+      else if (king.length)
+        rtn += "player king";
+      else if (opppawn.length)
+        rtn += "opponent pawn";
+      else if (oppking.length)
+        rtn += "opponent king";
+      rtn += "'></div>";
+    }
+    rtn += "</div>";
+  }
+  
+  rtn += "</div></div>";
+  return rtn;
+}
+
+function buildBoard(rows, cols) {
+  $("#board").html("");
+  for(var row = 0; row < rows; row++){
+    var newrow = $("<div class='row' id='row"+row+"'></div>");
+    for(var col = 0; col < cols; col++){
+      var cell = $("<div class='cell' id='cell"+row+col+"'><div class='pieceHolder'></div></div>");
+      newrow.append(cell);
+    }
+    $("#board").append(newrow);
+  }
+  
+  var opponent = players[1-playerNum];
+  $.each(opponent.pieces, function(i, p){
+    var piece = $("<div id='oppo"+i+"' class='piece "+p.type+" opponent'></div>");
+    $("#cell"+p.row + p.col).html(piece);
+  });
+  $("#opponent").html(printMove(opponent.hand[0], true, 0));
+  $("#opponent").append(printMove(opponent.hand[1], true, 1));
+  
+  var player = players[playerNum];
+  $.each(player.pieces, function(i, p){
+    var piece = $("<div id='play"+i+"' class='piece "+p.type+" player'></div>");
+    $("#cell"+(4-p.row) + (4-p.col)).html(piece);
+  });
+  $("#player").html(printMove(player.hand[0], false, 0));
+  $("#player").append(printMove(player.hand[1], false, 1));
+  
+  $("#ondeck").html(printMove(onDeck));
+
+}
+
+function checkBothSelected() {
+  $(".moveMarked").removeClass("moveMarked");
+  var selected = $(".selected");
+  if(selected.length != 2) return;
+  $("#clearSelection").show();
+  
+  var id = $(".selected.move").attr('id');
+  var move = players[id.substr(0,4) == 'play' ? playerNum : (1-playerNum)].hand[id.substr(4)];
+  
+  var piece = $(".selected.piece");
+  var opponent = piece.hasClass('opponent');
+  var king = $(piece).hasClass('king');
+  var pawn = $(piece).hasClass('pawn');
+  
+  var cell = $(piece).parent().attr('id').substr(-2);
+  var row = parseInt(cell[0]);
+  var col = parseInt(cell[1]);
+  var possibleMoves = [];
+  if(opponent && king) possibleMoves = possibleMoves.concat(move.oppking);
+  if(opponent && pawn) possibleMoves = possibleMoves.concat(move.opppawn);
+  if(!opponent && king) possibleMoves = possibleMoves.concat(move.king);
+  if(!opponent && pawn) possibleMoves = possibleMoves.concat(move.pawn);
+  if(!opponent && (king || pawn)) possibleMoves = possibleMoves.concat(move.both);
+  
+  if(!possibleMoves) {
+    return;
+  }
+  var targets = possibleMoves.map(function(i){
+    return "cell"+(row + i[0]) + (col+i[1]);
+  });
+  $(".possibleTarget").removeClass("possibleTarget possibleKill");
+  $.each(targets, function(i,n){
+    $("#"+n).addClass('possibleTarget');
+  });
+  
+  $(".possibleTarget").click(function(e){
+    $(".moveMarked").removeClass("moveMarked");
+    if($(e.currentTarget).hasClass('possibleTarget')) {
+      $(e.currentTarget).addClass('moveMarked');
+      $("#commitMove").show();
+      return;
+    }
+  });
+  
+  $(".possibleTarget .piece").parent().addClass("possibleKill");
+  if(opponent)
+    $(".piece.opponent").parent().removeClass("possibleTarget possibleKill");
+  $(".piece.player").parent().removeClass("possibleTarget possibleKill");
+  //alert(row + ' ' + col);
+}
+
+function endGame() {
+  alert("Game Over");
+  isOver = true;
+}
+
+$(function(){
+  gid = gup('gid');
+  playerNum = gup('p');
+  if(!gid || !playerNum) {
+    alert("something went wrong\rgid:"+gid+"\rp"+playerNum);
+  }
+  load(0, true);
+});
+
+function load(ts, first)
+{  
+  console.log("loading ts:"+ts)
+  ts = ts || 0;
+$.post("onitamaserver.php", {"timestamp":ts,"gid":gid}).done(function(data) {
+    data = JSON.parse(data);
+    loaded(JSON.parse(data.game), data.timestamp);
+    //if(first) 
+  }).error(function() {
+    load(ts);
+  });
+}
+  
+function loaded(game, timestamp)
+{
+  console.log(timestamp);
+  if(game.isOver){
+    var status = "Game is over:" + game.players[game.whosTurn].name + " won";
+    $("#status").html(status);
+    alert(status);
+    return;
+  }
+  
+  $("#status").html(game.players[0].name + ' vs ' + game.players[1].name + '<br>');
+  $("#status").append(game.players[game.whosTurn].name+"'s turn");
+  
+  players = game.players;
+  onDeck = game.onDeck;
+  whosTurn = game.whosTurn;
+  isOver = false;
+  buildBoard(5,5);
+  
+  if(whosTurn == playerNum) {
+    //do your turn stuff
+    load2();
+    $("#clearSelection, #commitMove").show()
+  }
+  else {
+    $("#clearSelection, #commitMove").hide()
+    console.log("reloading:"+timestamp);
+    load(timestamp);
+  }
+  load3();
+}
+function turnTaken() {
+  var game =
+  {
+    players:players,
+    onDeck:onDeck,
+    whosTurn:(whosTurn+1)%2,
+    isOver:isOver,
+    lastTurn:(new Date()).getTime(),
+    lastEmail:0
+  }
+  $.post("onitamaserver.php", {"game":JSON.stringify(game),"gid":gid}).done(function()
+  { 
+    doneOnce = false;
+    load(0);
+  });
+}
+
+var doneOnce = false;
+
+function load3() {
+
+  $("#opponent .move").click(function(e){
+    $(e.currentTarget).toggleClass('rotate');
+  });
+  
+  $("#ondeck .move").click(function(e){
+    $(e.currentTarget).toggleClass('rotate');
+  });
+}
+function load2(){
+//got lazy
+  $("#commitMove").click(function(e){
+    if(doneOnce) return;
+    doneOnce = true;
+    var piece = $(".piece.selected").attr('id');
+    var who = (piece[0] == 'p' ? players[playerNum]: players[1-playerNum]);
+    piece = who.pieces[parseInt(piece.substr(4))];
+    
+    var to = $(".moveMarked").attr('id').substr(-2);
+    var row = parseInt(to[0]);
+    var col = parseInt(to[1]);
+    
+    var to = $(".moveMarked");
+    
+    if(to.children().first().hasClass('piece')){
+      
+      var captured = $(".moveMarked").children().first().attr('id');
+      var who2 = (captured[0] == 'p' ? players[playerNum]: players[1-playerNum]);
+      captured = who2.pieces[parseInt(captured.substr(4))];
+      if(captured.type == 'king') {
+        endGame();
+      }
+      who2.pieces.splice(who2.pieces.indexOf(captured),1);
+      
+    }
+    if(who == players[playerNum]){ //currentPlayer
+      piece.row = 4-row;
+      piece.col = 4-col;
+    } else {
+      piece.row = row;
+      piece.col = col;
+    }
+    if(piece.type == 'king' && piece.row==4 && piece.col == 2)
+    {
+      endGame();
+    }
+    
+    var id = $(".selected.move").attr('id');
+    var move = players[playerNum].hand[id.substr(4)];
+    var temp = move;
+    players[playerNum].hand[id.substr(4)] = onDeck;
+    onDeck = temp;
+    turnTaken();
+  });
+  $("#clearSelection").hide();
+  $("#commitMove").hide();
+  $("#clearSelection").click(function(e){
+    $(".possibleTarget, .possibleKill, .selected, .moveMarked").removeClass("possibleKill possibleTarget selected moveMarked");
+    $("#commitMove").hide();
+    $("#clearSelection").hide();
+  });
+  
+  $("#player .move").click(function(e){
+  $(".possibleTarget").removeClass("possibleTarget possibleKill");
+    $(e.currentTarget).toggleClass('selected').siblings().removeClass('selected');
+    checkBothSelected();
+  });
+  
+  $(".cell .piece").click(function(e){
+    $(".moveMarked").removeClass("moveMarked");
+    if($(e.currentTarget).parent().hasClass('possibleTarget')) {
+      $(e.currentTarget).parent().addClass('moveMarked');
+      $("#commitMove").show();
+      return;
+    }
+    $("#commitMove").hide();
+  
+    $(".possibleTarget").removeClass("possibleTarget possibleKill");
+    $(".piece").removeClass('selected');
+    if($(e.currentTarget).hasClass('selected')) {
+      $(e.currentTarget).addClass('selected');
+    }
+    $(e.currentTarget).toggleClass('selected');
+    checkBothSelected();
+  });
+}
+
+</script>
+</head>
+<body>
+<div id="status"></div>
+<div id="opponent" class="hand">aoeuaoeu</div>
+<div id="boardondeck"><div id="board"></div><div id="ondeck" class="hand canRotate">aoeu</div></div>
+<div id="player" class="hand">aoeuaoeuaoeu</div>
+<br />
+<div id="clearSelection"><button>Clear Selection</button></div>
+<div id="commitMove"><button>Make Move</button></div>
+</body>
+
+</html>
